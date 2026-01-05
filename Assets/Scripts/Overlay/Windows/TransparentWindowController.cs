@@ -20,7 +20,7 @@ namespace Overlay.Windows
         [Header("Transparency")]
         [Range(0f, 1f)]
         [SerializeField] private float _windowAlpha = 1f;
-        [SerializeField] private Color _transparentColor = Color.black;
+        [SerializeField] private Color _transparentColor = Color.magenta;
 
         [Header("Position")]
         [SerializeField] private bool _rememberPosition = true;
@@ -147,37 +147,18 @@ namespace Overlay.Windows
             style &= ~(WindowsAPI.WS_CAPTION | WindowsAPI.WS_THICKFRAME | WindowsAPI.WS_SYSMENU);
             WindowsAPI.SetWindowLong(_windowHandle, WindowsAPI.GWL_STYLE, style);
 
-            // Add layered window style
-            uint exStyle = (uint)WindowsAPI.GetWindowLong(_windowHandle, WindowsAPI.GWL_EXSTYLE);
-            exStyle |= WindowsAPI.WS_EX_LAYERED;
-            WindowsAPI.SetWindowLong(_windowHandle, WindowsAPI.GWL_EXSTYLE, exStyle);
-
-            // Set color key for transparency (black becomes transparent)
-            uint colorKey = (uint)(
-                ((int)(_transparentColor.b * 255) << 16) |
-                ((int)(_transparentColor.g * 255) << 8) |
-                (int)(_transparentColor.r * 255)
-            );
-
-            WindowsAPI.SetLayeredWindowAttributes(
-                _windowHandle,
-                colorKey,
-                (byte)(_windowAlpha * 255),
-                WindowsAPI.LWA_COLORKEY | WindowsAPI.LWA_ALPHA
-            );
-
-            // Extend frame into client area for DWM composition
-            if (WindowsAPI.IsDwmCompositionEnabled())
+            // Use DWM composition for transparency (works with DirectX rendering)
+            // Black pixels with alpha=0 will become transparent
+            var margins = new WindowsAPI.MARGINS
             {
-                var margins = new WindowsAPI.MARGINS
-                {
-                    cxLeftWidth = -1,
-                    cxRightWidth = -1,
-                    cyTopHeight = -1,
-                    cyBottomHeight = -1
-                };
-                WindowsAPI.DwmExtendFrameIntoClientArea(_windowHandle, ref margins);
-            }
+                cxLeftWidth = -1,
+                cxRightWidth = -1,
+                cyTopHeight = -1,
+                cyBottomHeight = -1
+            };
+
+            int result = WindowsAPI.DwmExtendFrameIntoClientArea(_windowHandle, ref margins);
+            Debug.Log($"[TransparentWindowController] DwmExtendFrameIntoClientArea result: {result}");
 
             // Force window to update
             WindowsAPI.SetWindowPos(
@@ -190,7 +171,7 @@ namespace Overlay.Windows
             _isTransparent = true;
             OnTransparencyChanged?.Invoke(true);
 
-            Debug.Log("[TransparentWindowController] Transparency enabled.");
+            Debug.Log("[TransparentWindowController] Transparency enabled with DWM composition.");
         }
 
         public void DisableTransparency()
