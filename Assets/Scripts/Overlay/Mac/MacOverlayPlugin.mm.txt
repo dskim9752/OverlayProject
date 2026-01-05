@@ -1,0 +1,204 @@
+/*
+ * MacOverlayPlugin.mm
+ * Native Objective-C++ plugin for Mac overlay window functionality.
+ *
+ * BUILD INSTRUCTIONS:
+ * 1. Save this file as MacOverlayPlugin.mm
+ * 2. Create Xcode project or compile via command line:
+ *    clang++ -shared -framework AppKit -framework Cocoa -o MacOverlayPlugin.bundle MacOverlayPlugin.mm
+ * 3. Place the .bundle in Assets/Plugins/macOS/
+ *
+ * NOTE: This is a reference implementation. Test thoroughly on target Mac versions.
+ */
+
+#import <AppKit/AppKit.h>
+#import <Cocoa/Cocoa.h>
+
+static NSWindow* unityWindow = nil;
+static NSUInteger originalStyleMask = 0;
+static NSWindowLevel originalLevel = NSNormalWindowLevel;
+
+extern "C" {
+
+    void MacOverlay_Initialize() {
+        // Get the Unity window (main window of the application)
+        NSArray* windows = [NSApp windows];
+        for (NSWindow* window in windows) {
+            if ([window isMainWindow] || [window isKeyWindow]) {
+                unityWindow = window;
+                originalStyleMask = [window styleMask];
+                originalLevel = [window level];
+                break;
+            }
+        }
+
+        if (unityWindow == nil && windows.count > 0) {
+            unityWindow = [windows firstObject];
+            originalStyleMask = [unityWindow styleMask];
+            originalLevel = [unityWindow level];
+        }
+
+        NSLog(@"[MacOverlayPlugin] Initialized. Window: %@", unityWindow);
+    }
+
+    void MacOverlay_EnableTransparency() {
+        if (unityWindow == nil) return;
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            // Remove window decorations
+            [unityWindow setStyleMask:NSWindowStyleMaskBorderless];
+
+            // Enable transparency
+            [unityWindow setOpaque:NO];
+            [unityWindow setBackgroundColor:[NSColor clearColor]];
+
+            // Make window visible on all spaces
+            [unityWindow setCollectionBehavior:
+                NSWindowCollectionBehaviorCanJoinAllSpaces |
+                NSWindowCollectionBehaviorStationary |
+                NSWindowCollectionBehaviorFullScreenAuxiliary];
+
+            // Redraw
+            [unityWindow display];
+
+            NSLog(@"[MacOverlayPlugin] Transparency enabled");
+        });
+    }
+
+    void MacOverlay_DisableTransparency() {
+        if (unityWindow == nil) return;
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            // Restore original style
+            [unityWindow setStyleMask:originalStyleMask];
+            [unityWindow setOpaque:YES];
+            [unityWindow setBackgroundColor:[NSColor windowBackgroundColor]];
+            [unityWindow setLevel:originalLevel];
+            [unityWindow display];
+
+            NSLog(@"[MacOverlayPlugin] Transparency disabled");
+        });
+    }
+
+    void MacOverlay_SetClickThrough(bool enabled) {
+        if (unityWindow == nil) return;
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [unityWindow setIgnoresMouseEvents:enabled];
+            NSLog(@"[MacOverlayPlugin] Click-through: %d", enabled);
+        });
+    }
+
+    void MacOverlay_SetAlwaysOnTop(bool enabled) {
+        if (unityWindow == nil) return;
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (enabled) {
+                [unityWindow setLevel:NSFloatingWindowLevel];
+            } else {
+                [unityWindow setLevel:NSNormalWindowLevel];
+            }
+            NSLog(@"[MacOverlayPlugin] Always on top: %d", enabled);
+        });
+    }
+
+    // level: 0=normal, 1=floating, 2=status, 3=popUpMenu, 4=screenSaver, 5=desktop
+    void MacOverlay_SetLevel(int level) {
+        if (unityWindow == nil) return;
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSWindowLevel windowLevel;
+            switch (level) {
+                case 0: windowLevel = NSNormalWindowLevel; break;
+                case 1: windowLevel = NSFloatingWindowLevel; break;
+                case 2: windowLevel = NSStatusWindowLevel; break;
+                case 3: windowLevel = NSPopUpMenuWindowLevel; break;
+                case 4: windowLevel = NSScreenSaverWindowLevel; break;
+                case 5: windowLevel = kCGDesktopWindowLevel; break; // Below desktop icons
+                default: windowLevel = NSNormalWindowLevel; break;
+            }
+            [unityWindow setLevel:windowLevel];
+            NSLog(@"[MacOverlayPlugin] Level set to: %d", level);
+        });
+    }
+
+    void MacOverlay_SetDesktopLevel() {
+        if (unityWindow == nil) return;
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            // Place window at desktop level (behind desktop icons)
+            [unityWindow setLevel:kCGDesktopWindowLevel];
+            [unityWindow setCollectionBehavior:
+                NSWindowCollectionBehaviorCanJoinAllSpaces |
+                NSWindowCollectionBehaviorStationary |
+                NSWindowCollectionBehaviorIgnoresCycle];
+
+            NSLog(@"[MacOverlayPlugin] Desktop level set");
+        });
+    }
+
+    void MacOverlay_SetPosition(int x, int y) {
+        if (unityWindow == nil) return;
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSRect frame = [unityWindow frame];
+            NSRect screenFrame = [[NSScreen mainScreen] frame];
+
+            // macOS uses bottom-left origin, convert from top-left
+            int flippedY = screenFrame.size.height - y - frame.size.height;
+
+            [unityWindow setFrameOrigin:NSMakePoint(x, flippedY)];
+            NSLog(@"[MacOverlayPlugin] Position: %d, %d", x, y);
+        });
+    }
+
+    void MacOverlay_SetSize(int width, int height) {
+        if (unityWindow == nil) return;
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSRect frame = [unityWindow frame];
+            frame.size.width = width;
+            frame.size.height = height;
+            [unityWindow setFrame:frame display:YES];
+            NSLog(@"[MacOverlayPlugin] Size: %d x %d", width, height);
+        });
+    }
+
+    void MacOverlay_SetAlpha(float alpha) {
+        if (unityWindow == nil) return;
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [unityWindow setAlphaValue:alpha];
+            NSLog(@"[MacOverlayPlugin] Alpha: %f", alpha);
+        });
+    }
+
+    void MacOverlay_HideFromDock() {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+            NSLog(@"[MacOverlayPlugin] Hidden from Dock");
+        });
+    }
+
+    void MacOverlay_ShowInDock() {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+            NSLog(@"[MacOverlayPlugin] Shown in Dock");
+        });
+    }
+
+    void MacOverlay_GetWindowRect(int* x, int* y, int* width, int* height) {
+        if (unityWindow == nil) {
+            *x = *y = *width = *height = 0;
+            return;
+        }
+
+        NSRect frame = [unityWindow frame];
+        NSRect screenFrame = [[NSScreen mainScreen] frame];
+
+        *x = (int)frame.origin.x;
+        *y = (int)(screenFrame.size.height - frame.origin.y - frame.size.height);
+        *width = (int)frame.size.width;
+        *height = (int)frame.size.height;
+    }
+}
